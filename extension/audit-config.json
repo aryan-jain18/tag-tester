@@ -1,0 +1,25 @@
+{
+  "audits": [
+    {"id": "AUD-001", "category": "Performance",  "name": "Library Load & Performance Time", "description": "Check what external libraries are loaded and measure their DNS, TCP, and load times."},
+    {"id": "AUD-002", "category": "Debugging",    "name": "Console Errors Logging", "description": "Identify and log native page console errors for debugging silent failures."},
+    {"id": "AUD-003", "category": "Privacy",      "name": "Cookie Auditing", "description": "Check for consent cookies, functional cookies, and flag third-party tracking cookies."},
+    {"id": "AUD-004", "category": "Compliance",   "name": "CDP/Integration Data Flow", "description": "Verify if data is sent to CDPs/CRMs (e.g., HubSpot) when marketing consent is denied."},
+    {"id": "AUD-005", "category": "Privacy",      "name": "Ad Tracking Flow Verification", "description": "Verify if ads/tracking pixels fire when consent is blocked."},
+    {"id": "AUD-006", "category": "Privacy",      "name": "Zero-Cookie Load Test", "description": "Check if non-essential cookies are dropped before the user interacts with the consent banner."},
+    {"id": "AUD-007", "category": "Privacy",      "name": "Local/Session Storage Sneaking", "description": "Audit localStorage, sessionStorage, and IndexedDB for identifiers bypassing cookie blockers."},
+    {"id": "AUD-008", "category": "Privacy",      "name": "Third-Party Domain Requests", "description": "Tally up all external domains the website communicates with to identify uncontrolled tracking."},
+    {"id": "AUD-009", "category": "Performance",  "name": "Core Web Vitals (CWV)", "description": "Measure real-time LCP, CLS, and INP metrics."},
+    {"id": "AUD-010", "category": "Performance",  "name": "Asset Size Warnings", "description": "Flag uncompressed scripts, missing gzip/brotli headers, or oversized images (> 1MB)."},
+    {"id": "AUD-011", "category": "Performance",  "name": "Render-Blocking Resources", "description": "Identify CSS or JS files in the <head> that delay the first contentful paint."},
+    {"id": "AUD-012", "category": "Security",     "name": "Mixed Content Warnings", "description": "Flag if a secure site (HTTPS) is attempting to load insecure HTTP resources."},
+    {"id": "AUD-013", "category": "SEO",          "name": "Missing Essential Meta Tags", "description": "Audit the page for missing viewport, canonical links, or Open Graph tags."},
+    {"id": "AUD-014", "category": "Privacy",      "name": "PII Leakage Detection", "description": "Detect plaintext or hashed PII (email, phone, name) in cookies or outgoing network payloads."},
+    {"id": "AUD-015", "category": "Privacy",      "name": "Third-Party iFrame Audits", "description": "Check if embedded iframes drop trackers or cookies while bypassing parent site consent rules."},
+    {"id": "AUD-016", "category": "Debugging",    "name": "Tag Schema Validation", "description": "Verify network payloads match expected event schemas for platforms like TikTok, LinkedIn, Reddit, and Bing."},
+    {"id": "AUD-017", "category": "Debugging",    "name": "Event Duplication", "description": "Check if multiple identical tracking events fire off a single user action skewing metrics."},
+    {"id": "AUD-018", "category": "Performance",  "name": "Unused or Dead Scripts", "description": "Flag external libraries that are loaded but never executed, or those that return 4xx/5xx network errors."},
+    {"id": "AUD-019", "category": "Performance",  "name": "Synchronous Script Blocking", "description": "Detect if third-party scripts are loaded synchronously without async or defer attributes."},
+    {"id": "AUD-020", "category": "Security",     "name": "Exposed API Keys", "description": "Scan the DOM and network requests for hardcoded or exposed keys (e.g., Stripe publishable keys, HubSpot tokens)."},
+    {"id": "AUD-021", "category": "Debugging",    "name": "Console Warnings Logging", "description": "Identify and log deprecation notices or library warnings."}
+  ]
+}
