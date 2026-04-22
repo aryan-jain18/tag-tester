@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>GTM Audit</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; font-size: 12px; width: 280px; margin: 0; padding: 10px; }
+  h1 { font-size: 14px; margin: 0 0 8px; }
+  .row { margin-bottom: 6px; }
+  button { padding: 4px 10px; border: 1px solid #c8d1d9; background: white; border-radius: 4px; cursor: pointer; }
+  .hint { color: #57606a; font-size: 11px; }
+  code { background: #f6f8fa; padding: 1px 4px; border-radius: 3px; }
+</style></head>
+<body>
+  <h1>GTM Audit</h1>
+  <div class="row">Open <b>DevTools → GTM Audit</b> tab to run the full audit.</div>
+  <div class="row"><button id="clearCookies">Clear cookies for this site</button></div>
+  <div class="row"><button id="clearStorage">Clear local/session storage</button></div>
+  <div class="row hint">Use these to prepare a clean Zero-Cookie test (AUD-006), then reload without interacting with the consent banner.</div>
+  <div id="status" class="hint"></div>
+  <script src="popup.js"></script>
+</body></html>

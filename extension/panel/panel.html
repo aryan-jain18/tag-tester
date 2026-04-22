@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>GTM Audit</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header>
+    <div class="brand">GTM Audit</div>
+    <div class="controls">
+      <button id="run">Run Audit</button>
+      <button id="refresh">Refresh</button>
+      <button id="clear">Clear</button>
+      <label><input type="checkbox" id="consentDenied"> Simulate consent denied</label>
+      <button id="export">Export JSON</button>
+    </div>
+  </header>
+  <nav class="tabs">
+    <button class="tab active" data-tab="summary">Audit Summary</button>
+    <button class="tab" data-tab="tags">Tags / Pixels</button>
+    <button class="tab" data-tab="datalayer">dataLayer</button>
+    <button class="tab" data-tab="requests">Network</button>
+    <button class="tab" data-tab="cookies">Cookies</button>
+    <button class="tab" data-tab="storage">Storage</button>
+    <button class="tab" data-tab="console">Console</button>
+  </nav>
+  <main>
+    <section id="summary" class="view active"></section>
+    <section id="tags" class="view"></section>
+    <section id="datalayer" class="view"></section>
+    <section id="requests" class="view"></section>
+    <section id="cookies" class="view"></section>
+    <section id="storage" class="view"></section>
+    <section id="console" class="view"></section>
+  </main>
+  <script src="../lib/providers.js"></script>
+  <script src="audits.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>
