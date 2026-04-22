@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tag Tester</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <header class="toolbar">
+    <button id="live" title="Toggle live streaming">⏸ Pause live</button>
+    <button id="run">Run audit</button>
+    <button id="reload">Reload page</button>
+    <span class="sep"></span>
+    <label>Region:
+      <select id="region">
+        <option value="auto" selected>Auto-detect</option>
+        <option value="EU">EU</option>
+        <option value="US">US / Other</option>
+      </select>
+    </label>
+    <span class="sep"></span>
+    <button id="clearTracking" title="Clear _ga*, _gcl_*, _fbp, consent cookies etc.">Clear tracking cookies</button>
+    <button id="clearAll" title="Clear all cookies + storage, then reload">Clear all + reload</button>
+    <span class="sep"></span>
+    <button id="export">Export JSON</button>
+    <span id="status" class="status"></span>
+    <span id="auditedCount" class="status" style="margin-left:10px;"></span>
+  </header>
+
+  <nav class="tabs">
+    <button data-tab="summary" class="active">Summary</button>
+    <button data-tab="requests">Requests</button>
+    <button data-tab="datalayer">dataLayer</button>
+    <button data-tab="cookies">Cookies</button>
+    <button data-tab="pagestate">Page state</button>
+  </nav>
+
+  <main>
+    <section id="tab-summary" class="tab active"></section>
+    <section id="tab-requests" class="tab"></section>
+    <section id="tab-datalayer" class="tab"></section>
+    <section id="tab-cookies" class="tab"></section>
+    <section id="tab-pagestate" class="tab"></section>
+  </main>
+
+  <script src="../utils/parsers.js"></script>
+  <script src="../rules/consent.js"></script>
+  <script src="../rules/ads.js"></script>
+  <script src="../rules/analytics.js"></script>
+  <script src="../rules/events.js"></script>
+  <script src="../rules/cookies.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>
