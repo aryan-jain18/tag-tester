@@ -6,11 +6,11 @@ let lastResults = null;
 let live = { requests: [], requestIndex: new Map(), pageState: {}, origin: "" };
 let liveEnabled = true;
 let renderTimer = null;
+let requestCategoryFilter = null; // e.g. "analytics", "ads", "replay", "loader"
 
 function connectLive() {
   const port = chrome.runtime.connect({ name: "tt-panel-" + tabId });
   port.onMessage.addListener((msg) => {
-    if (!liveEnabled) return;
     if (msg.type === "snapshot") {
       live.requests = msg.requests || [];
       live.requestIndex = new Map(live.requests.map((r, i) => [r.id, i]));
@@ -26,7 +26,7 @@ function connectLive() {
       live.pageState = msg.pageState || {};
       live.origin = msg.origin || live.origin;
     }
-    scheduleRender();
+    if (liveEnabled) scheduleRender();
   });
   port.onDisconnect.addListener(() => { setTimeout(connectLive, 500); });
 }
@@ -69,10 +69,13 @@ async function runAudit() {
     ads: window.TTRules.ads.run(input),
     cookies: window.TTRules.cookies.run(input)
   };
+  const piiFindings = detectPii(annotated, ctx.pageState?.dataLayer || []);
   lastContext = input;
   lastResults = results;
-  renderSummary(results, annotated);
+  renderSummary(results, annotated, piiFindings);
+  renderDestinationsTab(annotated);
   renderRequests(annotated);
+  renderUserData(piiFindings);
   renderDataLayer(ctx.pageState?.dataLayer || []);
   renderCookies(ctx.cookies || []);
   renderPageState(ctx.pageState || {});
@@ -143,14 +146,14 @@ function renderDestinations(annotated) {
       const consentBadge = /ga4|google_ads_conv|floodlight|meta|tiktok|linkedin|bing/.test(g.provider.key)
         ? (g.withConsent === g.count ? '<span class="pill pass">gcs ✓</span>' : g.withConsent ? `<span class="pill warn">gcs ${g.withConsent}/${g.count}</span>` : '<span class="pill fail">no gcs</span>')
         : "";
-      return `<tr>
+      return `<tr class="dest-row" data-dest-cat="${key}" title="Filter Requests by ${catTitle[key]}">
         <td><span class="provider-tag ${g.provider.category}">${escapeHtml(g.provider.name)}</span></td>
         <td>${idList}</td>
         <td>${g.count} hit${g.count > 1 ? "s" : ""}</td>
         <td>${consentBadge}</td>
       </tr>`;
     }).join("");
-    return `<h4 class="dest-cat">${catTitle[key]}</h4>
+    return `<h4 class="dest-cat dest-cat-click" data-dest-cat="${key}" title="Filter Requests by ${catTitle[key]}">${catTitle[key]}</h4>
       <table class="dest-table"><tbody>${rows}</tbody></table>`;
   };
 
@@ -158,6 +161,20 @@ function renderDestinations(annotated) {
     <div class="dest-header">Destinations — where this page is sending data</div>
     ${section("analytics")}${section("ads")}${section("replay")}${section("loader")}
   </div>`;
+}
+
+function wireDestinationFilters(scopeEl) {
+  if (!scopeEl) return;
+  const go = (cat) => {
+    if (!cat) return;
+    requestCategoryFilter = cat;
+    const btn = document.querySelector('.tabs button[data-tab="requests"]');
+    if (btn) btn.click();
+    if (lastContext) renderRequests(lastContext.annotated || []);
+  };
+  scopeEl.querySelectorAll("[data-dest-cat]").forEach((node) => {
+    node.addEventListener("click", () => go(node.dataset.destCat));
+  });
 }
 
 function pickId(r) {
@@ -323,15 +340,257 @@ function friendlyFor(r) {
   return { text: f.good, why: "" };
 }
 
-function renderSummary(results, annotated) {
+// ───── PII / user-data detection ─────
+
+// Unambiguous PII names — safe to flag anywhere, any vendor.
+const PII_PARAM_NAMES = {
+  email: ["email", "e_mail", "user_email", "useremail", "mail", "mailto", "email_address"],
+  phone: ["phone", "tel", "telephone", "mobile", "phone_number", "cellphone"],
+  first_name: ["first_name", "firstname", "given_name"],
+  last_name: ["last_name", "lastname", "family_name", "surname"],
+  full_name: ["full_name", "fullname", "user_name"],
+  user_id: ["user_id", "userid", "customer_id", "customerid", "external_id", "externalid"],
+  dob: ["dob", "birthday", "birthdate", "date_of_birth"],
+  gender: ["sex"],
+  zip: ["zipcode", "postal_code", "postcode"],
+  state: ["state_province"],
+  address: ["street_address", "address_line_1", "address_line_2"]
+};
+
+// Ambiguous short aliases — ONLY treated as PII when the request belongs to a
+// vendor known to use them that way (e.g. Meta Pixel's em/ph/fn/ln). Matching
+// these on arbitrary page-level requests causes false positives like ln=en-us
+// (a locale) being flagged as "last_name".
+const AMBIGUOUS_PII_ALIASES = {
+  em: "email", ph: "phone", fn: "first_name", ln: "last_name",
+  ge: "gender", db: "dob", ct: "city", zp: "zip", pn: "phone",
+  uid: "user_id"
+};
+
+// Vendor-specific fields that MUST be SHA-256 hashed.
+const VENDOR_HASH_EXPECTATIONS = {
+  meta: { em: 1, ph: 1, fn: 1, ln: 1, ge: 1, db: 1, ct: 1, zp: 1, st: 1, country: 1, external_id: 1 },
+  google_ads_conv: {
+    em: 1, sha256_email_address: 1, sha256_phone_number: 1,
+    sha256_first_name: 1, sha256_last_name: 1, sha256_street: 1
+  },
+  tiktok: { email: 1, phone_number: 1, external_id: 1, "context.user.email": 1, "context.user.phone_number": 1 }
+};
+
+const SHA256_RE = /^[a-f0-9]{64}$/i;
+const SHA1_RE = /^[a-f0-9]{40}$/i;
+const MD5_RE = /^[a-f0-9]{32}$/i;
+const EMAIL_RE = /[\w.+%-]+@[\w-]+\.[\w.-]{2,}/;
+
+function piiParamType(key, { vendorKey = "", expectations = {} } = {}) {
+  const k = String(key).toLowerCase();
+  for (const [type, names] of Object.entries(PII_PARAM_NAMES)) {
+    if (names.some((n) => n.toLowerCase() === k)) return type;
+  }
+  // Short aliases only count when the vendor is known to use them this way.
+  if (AMBIGUOUS_PII_ALIASES[k] && (vendorKey && expectations[k])) return AMBIGUOUS_PII_ALIASES[k];
+  return null;
+}
+
+function requestDestination(r) {
+  if (r.provider?.name) return r.provider.name;
+  try { return new URL(r.url).hostname; } catch { return "(unknown)"; }
+}
+
+function classifyValue(v) {
+  if (v == null || v === "") return "empty";
+  const s = String(v);
+  if (SHA256_RE.test(s)) return "sha256";
+  if (SHA1_RE.test(s)) return "sha1";
+  if (MD5_RE.test(s)) return "md5";
+  if (EMAIL_RE.test(s)) return "raw_email";
+  return "other";
+}
+
+function safeDecode(v) { try { return decodeURIComponent(String(v)); } catch { return String(v); } }
+
+function flattenInto(out, obj, prefix) {
+  if (obj == null) return;
+  if (Array.isArray(obj)) { obj.forEach((v, i) => flattenInto(out, v, prefix ? `${prefix}[${i}]` : `[${i}]`)); return; }
+  if (typeof obj === "object") { for (const [k, v] of Object.entries(obj)) flattenInto(out, v, prefix ? `${prefix}.${k}` : k); return; }
+  out[prefix] = String(obj);
+}
+
+function collectParams(r) {
+  const params = {};
+  try { new URL(r.url).searchParams.forEach((v, k) => { params[k] = v; }); } catch {}
+  if (r.postBody) {
+    try { new URLSearchParams(r.postBody).forEach((v, k) => { params[k] = v; }); } catch {}
+    if (/^\s*[{\[]/.test(r.postBody)) {
+      try { const j = JSON.parse(r.postBody); flattenInto(params, j, ""); } catch {}
+    }
+  }
+  return params;
+}
+
+function truncateSample(s, n = 60) {
+  s = String(s);
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
+function detectPii(annotated, dataLayerPushes) {
+  const findings = [];
+  const push = (f) => findings.push(f);
+
+  for (const r of (annotated || [])) {
+    const vendorKey = r.provider?.key || "";
+    const vendorName = requestDestination(r);
+    const destHost = (() => { try { return new URL(r.url).hostname; } catch { return ""; } })();
+    const expectations = VENDOR_HASH_EXPECTATIONS[vendorKey] || {};
+    const params = collectParams(r);
+
+    for (const [key, rawVal] of Object.entries(params)) {
+      if (rawVal == null || rawVal === "") continue;
+      const val = safeDecode(rawVal);
+      const kind = classifyValue(val);
+      const expected = expectations[key] || expectations[key.toLowerCase()];
+      const piiType = piiParamType(key, { vendorKey, expectations });
+
+      const base = { vendor: vendorName, destHost, source: "request", field: key };
+
+      if (expected) {
+        if (kind === "sha256") push({ ...base, severity: "ok", piiType: piiType || "user_data", valueKind: "sha256", sample: truncateSample(val, 20), note: "Hashed as expected" });
+        else if (kind === "md5" || kind === "sha1") push({ ...base, severity: "warn", piiType: piiType || "user_data", valueKind: kind, sample: truncateSample(val, 20), note: `Weak hash (${kind}). Vendor requires SHA-256.` });
+        else if (kind === "raw_email" || piiType) push({ ...base, severity: "fail", piiType: piiType || "user_data", valueKind: kind, sample: truncateSample(val), note: "Vendor requires SHA-256 but received raw value." });
+        continue;
+      }
+
+      if (piiType) {
+        if (kind === "sha256") push({ ...base, severity: "ok", piiType, valueKind: "sha256", sample: truncateSample(val, 20), note: "Hashed" });
+        else if (kind === "raw_email") push({ ...base, severity: "fail", piiType: "email", valueKind: "raw_email", sample: truncateSample(val), note: "Raw email in PII-named parameter" });
+        else if (piiType === "user_id") push({ ...base, severity: "info", piiType, valueKind: "other", sample: truncateSample(val, 32), note: "Pseudonymous user ID" });
+        else if (piiType === "email") { /* named email but value not email-shape — skip */ }
+        else push({ ...base, severity: "fail", piiType, valueKind: "other", sample: truncateSample(val), note: `Raw ${piiType} sent unhashed` });
+        continue;
+      }
+
+      if (kind === "raw_email") {
+        push({ ...base, severity: "fail", piiType: "email", valueKind: "raw_email", sample: truncateSample(val), note: "Raw email found in URL/body" });
+      }
+    }
+  }
+
+  for (const p of (dataLayerPushes || [])) {
+    const flat = {};
+    flattenInto(flat, p.e, "");
+    for (const [key, rawVal] of Object.entries(flat)) {
+      if (rawVal == null || rawVal === "") continue;
+      const val = safeDecode(rawVal);
+      const kind = classifyValue(val);
+      const piiType = piiParamType(key.split(".").pop());
+
+      if (piiType === "user_id" && kind !== "raw_email") {
+        push({ severity: "info", vendor: "dataLayer", source: "datalayer", field: key, piiType, valueKind: "other", sample: truncateSample(val, 32), note: "Pseudonymous user ID in dataLayer" });
+      } else if (piiType && kind === "raw_email") {
+        push({ severity: "fail", vendor: "dataLayer", source: "datalayer", field: key, piiType: "email", valueKind: "raw_email", sample: truncateSample(val), note: "Raw email pushed to dataLayer" });
+      } else if (piiType && kind === "other" && piiType !== "email" && piiType !== "user_id") {
+        push({ severity: "warn", vendor: "dataLayer", source: "datalayer", field: key, piiType, valueKind: "other", sample: truncateSample(val), note: `Raw ${piiType} pushed to dataLayer` });
+      } else if (!piiType && kind === "raw_email") {
+        push({ severity: "fail", vendor: "dataLayer", source: "datalayer", field: key, piiType: "email", valueKind: "raw_email", sample: truncateSample(val), note: "Raw email found in dataLayer push" });
+      } else if (piiType && kind === "sha256") {
+        push({ severity: "ok", vendor: "dataLayer", source: "datalayer", field: key, piiType, valueKind: "sha256", sample: truncateSample(val, 20), note: "Hashed user data in dataLayer" });
+      }
+    }
+  }
+
+  // Dedupe by vendor+destHost+field+valueKind+sample — identical requests collapse to one row with a count.
+  const seen = new Map();
+  for (const f of findings) {
+    const k = `${f.source}|${f.vendor}|${f.destHost || ""}|${f.field}|${f.valueKind}|${f.sample}`;
+    if (seen.has(k)) seen.get(k).count++;
+    else { f.count = 1; seen.set(k, f); }
+  }
+  return Array.from(seen.values());
+}
+
+function renderUserData(findings) {
+  const el = document.getElementById("tab-userdata");
+  if (!findings || !findings.length) {
+    el.innerHTML = `<div class="ud-empty">
+      <h3>No user data detected yet</h3>
+      <p>As tags fire, this tab will show what user data (emails, phones, names, IDs) is being sent — and whether it's hashed (compliant) or raw (violation).</p>
+    </div>`;
+    return;
+  }
+
+  const groups = {
+    fail: findings.filter((f) => f.severity === "fail"),
+    warn: findings.filter((f) => f.severity === "warn"),
+    ok: findings.filter((f) => f.severity === "ok"),
+    info: findings.filter((f) => f.severity === "info")
+  };
+
+  const header = `<div class="ud-header">
+    <div class="ud-health ${groups.fail.length ? "bad" : groups.warn.length ? "warn" : "good"}">
+      ${groups.fail.length ? `${groups.fail.length} PII violation${groups.fail.length === 1 ? "" : "s"}`
+        : groups.warn.length ? `${groups.warn.length} potential issue${groups.warn.length === 1 ? "" : "s"}`
+        : "No raw PII detected"}
+    </div>
+    <div class="ud-chips">
+      <span class="chip fail">${groups.fail.length} raw</span>
+      <span class="chip warn">${groups.warn.length} weak</span>
+      <span class="chip pass">${groups.ok.length} hashed</span>
+      <span class="chip">${groups.info.length} IDs</span>
+    </div>
+  </div>`;
+
+  const section = (title, items, severityClass, intro) => {
+    if (!items.length) return "";
+    return `<h3 class="ud-section ${severityClass}">${title} · ${items.length}</h3>
+      ${intro ? `<p class="ud-intro">${intro}</p>` : ""}
+      <table class="ud-table">
+        <thead><tr><th>Destination</th><th>Field</th><th>Type</th><th>Value (preview)</th><th>Why</th></tr></thead>
+        <tbody>
+          ${items.map((f) => {
+            const vendorIsHost = f.destHost && (f.vendor === f.destHost);
+            const destCell = f.source === "datalayer"
+              ? `<strong>dataLayer</strong>`
+              : vendorIsHost
+                ? `<span class="dim">unrecognized tag</span><br><code class="ud-host">${escapeHtml(f.destHost)}</code>`
+                : `<strong>${escapeHtml(f.vendor)}</strong>${f.destHost ? `<br><code class="ud-host">${escapeHtml(f.destHost)}</code>` : ""}`;
+            return `<tr class="ud-row sev-${f.severity}">
+              <td>${destCell}${f.count > 1 ? ` <span class="dim">×${f.count}</span>` : ""}</td>
+              <td><code>${escapeHtml(f.field)}</code></td>
+              <td><span class="pii-type">${escapeHtml(f.piiType || "—")}</span></td>
+              <td><code class="ud-sample">${escapeHtml(f.sample)}</code></td>
+              <td>${escapeHtml(f.note)}</td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>`;
+  };
+
+  el.innerHTML = header
+    + section("Raw PII sent (compliance risk)", groups.fail, "fail", "These values are personal data sent in the clear or in fields a vendor requires to be SHA-256 hashed.")
+    + section("Weak hashing", groups.warn, "warn", "Values appear to be hashed with MD5/SHA-1 instead of SHA-256, or contain raw PII in an unexpected field.")
+    + section("Hashed user data (compliant)", groups.ok, "ok", "These are properly SHA-256 hashed before being sent — expected vendor behavior.")
+    + section("Pseudonymous IDs", groups.info, "info", "Non-PII identifiers used to stitch sessions. Not a violation by themselves but still personal data under GDPR.");
+}
+
+function renderDestinationsTab(annotated) {
+  const el = document.getElementById("tab-destinations");
+  const html = renderDestinations(annotated || []);
+  el.innerHTML = html || `<div class="ud-empty">
+    <h3>No destinations captured yet</h3>
+    <p>As tag, pixel, and analytics requests fire, this tab will group them by vendor and show the IDs, hit counts, and consent-signal coverage for each.</p>
+  </div>`;
+  wireDestinationFilters(el);
+}
+
+function renderSummary(results, annotated, piiFindings) {
   const el = document.getElementById("tab-summary");
-  const destinations = renderDestinations(annotated || []);
   const all = [];
   for (const [cat, items] of Object.entries(results)) for (const r of items) all.push({ ...r, _cat: cat });
   const counts = { fail: 0, warn: 0, pass: 0, info: 0, skip: 0 };
   for (const r of all) counts[r.status] = (counts[r.status] || 0) + 1;
 
-  const issues = all.filter((r) => r.status === "fail" || r.status === "warn");
+  const fails = all.filter((r) => r.status === "fail");
+  const warns = all.filter((r) => r.status === "warn");
   const working = all.filter((r) => r.status === "pass");
 
   let health, healthClass;
@@ -349,25 +608,41 @@ function renderSummary(results, annotated) {
     </div>
   </div>`;
 
-  const issueList = issues.length
-    ? `<h3 class="sum-h needs">What needs attention</h3>
-       <ul class="plain-list">
-         ${issues.map((r) => {
-           const f = friendlyFor(r);
-           const icon = r.status === "fail" ? "✕" : "!";
-           return `<li class="plain-item status-${r.status}">
-             <span class="plain-icon">${icon}</span>
-             <div class="plain-body">
-               <div class="plain-text">${escapeHtml(f.text)}</div>
-               ${f.why ? `<div class="plain-why">${escapeHtml(f.why)}</div>` : ""}
-             </div>
-           </li>`;
-         }).join("")}
-       </ul>`
-    : `<h3 class="sum-h needs-none">Nothing needs attention right now.</h3>`;
+  const piiFail = (piiFindings || []).filter((f) => f.severity === "fail").length;
+  const piiWarn = (piiFindings || []).filter((f) => f.severity === "warn").length;
+  const piiTeaser = (piiFail || piiWarn) ? `<div class="pii-teaser ${piiFail ? "fail" : "warn"}">
+    <strong>${piiFail ? `${piiFail} PII violation${piiFail === 1 ? "" : "s"} detected` : `${piiWarn} potential PII issue${piiWarn === 1 ? "" : "s"}`}</strong>
+    — raw personal data is being sent to tag vendors.
+    <a href="#" data-goto="userdata">Open User data tab →</a>
+  </div>` : "";
+
+  const issueItem = (r, icon) => {
+    const f = friendlyFor(r);
+    return `<li class="plain-item status-${r.status}">
+      <span class="plain-icon">${icon}</span>
+      <div class="plain-body">
+        <div class="plain-text">${escapeHtml(f.text)}</div>
+        ${f.why ? `<div class="plain-why">${escapeHtml(f.why)}</div>` : ""}
+      </div>
+    </li>`;
+  };
+
+  const criticalList = fails.length
+    ? `<h3 class="sum-h needs">issues (${fails.length})</h3>
+       <ul class="plain-list">${fails.map((r) => issueItem(r, "✕")).join("")}</ul>`
+    : "";
+
+  const warningsList = warns.length
+    ? `<h3 class="sum-h warnings">Warnings (${warns.length})</h3>
+       <ul class="plain-list">${warns.map((r) => issueItem(r, "!")).join("")}</ul>`
+    : "";
+
+  const noIssues = !fails.length && !warns.length
+    ? `<h3 class="sum-h needs-none">No issues found.</h3>`
+    : "";
 
   const workingList = working.length
-    ? `<h3 class="sum-h good">What's working well</h3>
+    ? `<h3 class="sum-h good">What's working well (${working.length})</h3>
        <ul class="plain-list">
          ${working.map((r) => {
            const f = friendlyFor(r);
@@ -379,20 +654,29 @@ function renderSummary(results, annotated) {
        </ul>`
     : "";
 
-  const detailsOrder = ["fail", "warn", "pass", "info", "skip"];
+  const detailsOrder = ["fail", "warn", "pass", "info"];
   const detailsBody = detailsOrder.map((status) => {
     const items = all.filter((r) => r.status === status);
     if (!items.length) return "";
-    return `<div class="category status-${status}">${status.toUpperCase()} · ${items.length}</div>` + items.map(renderRule).join("");
+    const label = status === "fail" ? "ISSUES" : status.toUpperCase();
+    return `<div class="category status-${status}">${label} · ${items.length}</div>` + items.map(renderRule).join("");
   }).join("");
   const details = `<details class="tech-details">
     <summary>Show technical audit details</summary>
     <div class="tech-details-body">${detailsBody}</div>
   </details>`;
 
-  el.innerHTML = destinations + headline + issueList + workingList + details;
+  el.innerHTML = headline + piiTeaser + criticalList + warningsList + noIssues + workingList + details;
   el.querySelectorAll(".rule").forEach((r) => {
     r.querySelector(".hd").addEventListener("click", () => r.classList.toggle("open"));
+  });
+  el.querySelectorAll("[data-goto]").forEach((a) => {
+    a.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      const target = a.dataset.goto;
+      const btn = document.querySelector(`.tabs button[data-tab="${target}"]`);
+      if (btn) btn.click();
+    });
   });
 }
 
@@ -412,16 +696,45 @@ function renderRule(r) {
 
 function renderRequests(annotated) {
   const el = document.getElementById("tab-requests");
-  const relevant = annotated.filter((r) => r.provider);
+  const allRelevant = annotated.filter((r) => r.provider);
+  const filtered = requestCategoryFilter
+    ? allRelevant.filter((r) => r.provider?.category === requestCategoryFilter)
+    : allRelevant;
+
+  const catTitle = { analytics: "Analytics", ads: "Ads", replay: "Session replay", loader: "Tag loaders" };
+  const filterBanner = requestCategoryFilter
+    ? `<div class="req-filter-banner">
+        <span>Filtered by <strong>${catTitle[requestCategoryFilter] || requestCategoryFilter}</strong> · ${filtered.length} of ${allRelevant.length} requests</span>
+        <button type="button" id="req-clear-filter">× Clear filter</button>
+      </div>`
+    : "";
+
+  const isActive = (c) => requestCategoryFilter === c ? " legend-active" : "";
   const legend = `<div class="legend">
-    <span class="provider-tag ads">ads</span>
-    <span class="provider-tag analytics">analytics</span>
-    <span class="provider-tag replay">session replay</span>
-    <span class="provider-tag loader">loader</span>
-    <span class="legend-hint">Only tag / pixel / analytics requests are shown — other assets are hidden.</span>
+    <span class="provider-tag ads legend-click${isActive("ads")}" data-legend-cat="ads" title="Filter by Ads">ads</span>
+    <span class="provider-tag analytics legend-click${isActive("analytics")}" data-legend-cat="analytics" title="Filter by Analytics">analytics</span>
+    <span class="provider-tag replay legend-click${isActive("replay")}" data-legend-cat="replay" title="Filter by Session replay">session replay</span>
+    <span class="provider-tag loader legend-click${isActive("loader")}" data-legend-cat="loader" title="Filter by Tag loaders">loader</span>
+    <span class="legend-hint">Click a tag to filter. Only tag / pixel / analytics requests are shown.</span>
   </div>`;
-  if (!relevant.length) { el.innerHTML = legend + "<p>No tag / analytics / ad requests captured yet.</p>"; return; }
-  const rows = relevant.map((r) => `
+  const wireLegend = () => {
+    el.querySelectorAll("[data-legend-cat]").forEach((node) => {
+      node.addEventListener("click", () => {
+        const cat = node.dataset.legendCat;
+        requestCategoryFilter = (requestCategoryFilter === cat) ? null : cat;
+        renderRequests(annotated);
+      });
+    });
+    const clearBtn = el.querySelector("#req-clear-filter");
+    if (clearBtn) clearBtn.addEventListener("click", () => { requestCategoryFilter = null; renderRequests(annotated); });
+  };
+
+  if (!filtered.length) {
+    el.innerHTML = filterBanner + legend + "<p>No tag / analytics / ad requests captured yet.</p>";
+    wireLegend();
+    return;
+  }
+  const rows = filtered.slice().reverse().map((r) => `
     <tr>
       <td>${new Date(r.timeStamp).toLocaleTimeString()}</td>
       <td><span class="provider-tag ${r.provider.category}">${escapeHtml(r.provider.name)}</span></td>
@@ -429,9 +742,10 @@ function renderRequests(annotated) {
       <td>${r.status || ""}</td>
       <td><code title="${escapeHtml(r.url)}">${escapeHtml(truncate(r.url, 80))}</code></td>
     </tr>`).join("");
-  el.innerHTML = legend + `<table>
+  el.innerHTML = filterBanner + legend + `<table>
     <thead><tr><th>Time</th><th>Provider</th><th>Fields</th><th>Status</th><th>URL</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
+  wireLegend();
 }
 
 function summarizeFields(f) {
