@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tag Tester — Audit consent, GA4, ads & cookies in DevTools</title>
+  <meta name="description" content="A Chrome extension that audits live page traffic for consent gating, ad-platform coverage, GA4 events, PII leaks, and cookie hygiene — right inside DevTools.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="landing.css">
+</head>
+<body>
+  <header class="nav">
+    <div class="wrap nav-wrap">
+      <a href="#" class="brand">
+        <span class="brand-mark">TT</span>
+        <span class="brand-text">Tag Tester <span class="brand-by">by Kaliper</span></span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#vendors">Vendors</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <div class="nav-cta">
+        <a href="#install" class="btn btn-primary btn-sm">+ Add to Chrome</a>
+      </div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="wrap hero-wrap">
+      <div class="hero-copy">
+        <span class="eyebrow">Chrome DevTools extension · Built by Kaliper</span>
+        <h1>Audit consent, ads &amp; analytics tags — <span class="grad">live in DevTools.</span></h1>
+        <p class="lede">
+          Tag Tester watches every network request, cookie, and <code>dataLayer</code> push your page fires, then tells you in plain English what's firing before consent, what's leaking PII, and what's quietly broken.
+        </p>
+        <div class="hero-ctas">
+          <a href="#install" class="btn btn-primary">+ Add to Chrome — it's free</a>
+          <a href="#preview" class="btn btn-ghost">See a live audit ↓</a>
+        </div>
+        <ul class="hero-pills">
+          <li>✓ No signup</li>
+          <li>✓ Runs 100% locally</li>
+          <li>✓ MV3 · Chrome 114+</li>
+        </ul>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="score-card">
+          <div class="score-head">
+            <span class="score-dot"></span>
+            <strong>Live audit</strong>
+            <span class="score-host">tendium.ai</span>
+          </div>
+          <div class="score-grid">
+            <div class="score">
+              <span class="score-label">Consent</span>
+              <span class="score-val good">94</span>
+            </div>
+            <div class="score">
+              <span class="score-label">Coverage</span>
+              <span class="score-val warn">72</span>
+            </div>
+            <div class="score">
+              <span class="score-label">Privacy</span>
+              <span class="score-val fail">58</span>
+            </div>
+            <div class="score">
+              <span class="score-label">Cookies</span>
+              <span class="score-val good">88</span>
+            </div>
+            <div class="score">
+              <span class="score-label">GA4</span>
+              <span class="score-val good">91</span>
+            </div>
+            <div class="score">
+              <span class="score-label">Ads</span>
+              <span class="score-val warn">76</span>
+            </div>
+          </div>
+          <div class="score-foot">
+            <span class="tag tag-fail">2 critical</span>
+            <span class="tag tag-warn">5 warnings</span>
+            <span class="tag tag-good">18 passing</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="vendors" class="vendors">
+    <div class="wrap">
+      <p class="section-eyebrow">Recognises &amp; audits tags from</p>
+      <ul class="vendor-row">
+        <li>Google Tag Manager</li>
+        <li>GA4</li>
+        <li>Google Ads</li>
+        <li>Meta Pixel</li>
+        <li>TikTok</li>
+        <li>LinkedIn Insight</li>
+        <li>Microsoft Bing</li>
+        <li>HubSpot</li>
+        <li>Clarity</li>
+        <li>Segment</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="preview" class="preview">
+    <div class="wrap">
+      <div class="section-head center">
+        <h2>Everything a tag specialist needs, in six tabs.</h2>
+        <p class="section-sub">Tag Tester sits inside Chrome DevTools — so it reads live traffic without proxies, extensions-of-extensions, or paper audits.</p>
+      </div>
+      <div class="panel-mock">
+        <div class="panel-chrome">
+          <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+          <span class="panel-title">Elements · Console · Sources · Network · Tag Tester</span>
+        </div>
+        <div class="panel-tabs">
+          <button class="panel-tab active">Summary</button>
+          <button class="panel-tab">Destinations</button>
+          <button class="panel-tab">Requests</button>
+          <button class="panel-tab">User data</button>
+          <button class="panel-tab">dataLayer</button>
+          <button class="panel-tab">Cookies</button>
+          <button class="panel-tab">Page state</button>
+        </div>
+        <div class="panel-body">
+          <div class="panel-healthbox">
+            <div class="ph-row">
+              <span class="ph-icon ph-fail">✕</span>
+              <div>
+                <strong>GA4 is firing before the user accepts cookies.</strong>
+                <span class="ph-why">Tags that run before consent may be unlawful in the EU.</span>
+              </div>
+            </div>
+            <div class="ph-row">
+              <span class="ph-icon ph-warn">!</span>
+              <div>
+                <strong>Meta Pixel is sending unhashed email addresses.</strong>
+                <span class="ph-why">Meta expects SHA-256 hashed values for <code>em</code>.</span>
+              </div>
+            </div>
+            <div class="ph-row">
+              <span class="ph-icon ph-good">✓</span>
+              <div>
+                <strong>Consent Mode v2 signals are present and updating.</strong>
+                <span class="ph-why">gcs / gcd parameters transition correctly.</span>
+              </div>
+            </div>
+          </div>
+          <div class="panel-legend">
+            <span class="chip ads">ads</span>
+            <span class="chip analytics">analytics</span>
+            <span class="chip replay">session replay</span>
+            <span class="chip loader">loader</span>
+            <span class="chip-hint">Click a tag in the Requests tab to filter.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" class="features">
+    <div class="wrap">
+      <div class="section-head center">
+        <span class="section-eyebrow">What you get</span>
+        <h2>Six views, one source of truth.</h2>
+        <p class="section-sub">Each tab answers a specific question a tag team gets asked every week.</p>
+      </div>
+      <div class="feat-grid">
+        <article class="feat">
+          <span class="feat-num">01</span>
+          <h3>Summary</h3>
+          <p>Plain-English findings split into <strong>Critical issues</strong>, <strong>Warnings</strong> and <strong>What's working</strong>. No jargon, no grep-ing the Network tab.</p>
+        </article>
+        <article class="feat">
+          <span class="feat-num">02</span>
+          <h3>Destinations</h3>
+          <p>See exactly where user data is going — Google, Meta, TikTok, HubSpot — grouped by category. Click any row to filter requests instantly.</p>
+        </article>
+        <article class="feat">
+          <span class="feat-num">03</span>
+          <h3>Requests</h3>
+          <p>Every tag / pixel / analytics hit, decoded. Latest on top, with payload parsed into key/value pairs you can actually read.</p>
+        </article>
+        <article class="feat">
+          <span class="feat-num">04</span>
+          <h3>User data (PII)</h3>
+          <p>Catches emails, phone numbers and unhashed identifiers leaving the page — with vendor-aware matching so <code>ln=en-us</code> isn't flagged as a last name.</p>
+        </article>
+        <article class="feat">
+          <span class="feat-num">05</span>
+          <h3>dataLayer</h3>
+          <p>Human-readable timeline of pushes — consent, config, events, e-commerce, GTM internals — each classified and expandable to raw JSON.</p>
+        </article>
+        <article class="feat">
+          <span class="feat-num">06</span>
+          <h3>Cookies</h3>
+          <p>First-party tracking cookies categorised by vendor, with one-click clearing of <code>_ga*</code>, <code>_gcl_*</code>, <code>_fbp</code> and friends to re-run the journey clean.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" class="how">
+    <div class="wrap">
+      <div class="section-head center">
+        <h2>From install to insight in under a minute.</h2>
+      </div>
+      <ol class="steps">
+        <li class="step">
+          <span class="step-num">1</span>
+          <h3>Install the extension</h3>
+          <p>Add Tag Tester to Chrome. No account, no telemetry, no external calls — every audit runs in your browser.</p>
+        </li>
+        <li class="step">
+          <span class="step-num">2</span>
+          <h3>Open DevTools → Tag Tester</h3>
+          <p>Browse your site as a real user would. Tag Tester captures requests, cookies and <code>dataLayer</code> pushes live.</p>
+        </li>
+        <li class="step">
+          <span class="step-num">3</span>
+          <h3>Review &amp; export</h3>
+          <p>Read the plain-English summary, filter by category, or export the full audit as JSON to share with engineering.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="deep">
+    <div class="wrap deep-wrap">
+      <div class="deep-copy">
+        <span class="section-eyebrow">Built for the real world</span>
+        <h2>The details other auditors miss.</h2>
+        <ul class="deep-list">
+          <li><strong>Consent-aware:</strong> flags any tag that fires before <code>gtag('consent', 'default')</code> resolves, or that ignores a <code>denied</code> region.</li>
+          <li><strong>Vendor-context PII:</strong> short aliases like <code>em</code>, <code>ph</code>, <code>fn</code>, <code>ln</code> are only treated as identifiers when the receiving vendor actually uses them that way.</li>
+          <li><strong>Survives service-worker suspensions:</strong> MV3-correct state hydration means you won't lose your audit after a few idle minutes.</li>
+          <li><strong>First-party cookie awareness:</strong> detects CNAME-cloaked tracking and server-side GTM endpoints on your own subdomains.</li>
+        </ul>
+      </div>
+      <div class="deep-art">
+<pre class="code-sample"><span class="c-kw">[request]</span> <span class="c-str">https://www.google-analytics.com/g/collect</span>
+  <span class="c-key">tid</span>:      G-XXXXXXX
+  <span class="c-key">en</span>:       page_view
+  <span class="c-key">gcs</span>:      G110 <span class="c-hint">// consent: ads denied</span>
+  <span class="c-warn">→ WARN</span>  fired before consent update
+
+<span class="c-kw">[request]</span> <span class="c-str">https://www.facebook.com/tr/</span>
+  <span class="c-key">ev</span>:       PageView
+  <span class="c-key">em</span>:       user@example.com
+  <span class="c-fail">→ FAIL</span>  unhashed email — Meta expects SHA-256
+
+<span class="c-kw">[dataLayer]</span> event · <span class="c-str">purchase</span>
+  value:      128.50
+  currency:   USD
+  <span class="c-good">→ OK</span>    matches GA4 &amp; Ads conversion</pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" class="cta-final">
+    <div class="wrap center">
+      <h2>Start auditing in your next tab.</h2>
+      <p class="section-sub">Tag Tester is free during beta. Your data never leaves your browser.</p>
+      <div class="hero-ctas center">
+        <a href="#" class="btn btn-primary btn-lg">+ Add to Chrome</a>
+        <a href="https://github.com/aryan-jain18/tag-tester" class="btn btn-ghost btn-lg">View on GitHub</a>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq" class="faq">
+    <div class="wrap">
+      <div class="section-head center">
+        <h2>Frequently asked</h2>
+      </div>
+      <div class="faq-grid">
+        <details class="q"><summary>Does Tag Tester send my data anywhere?</summary><p>No. Every audit runs locally inside your browser. Nothing is uploaded to Kaliper or any third party.</p></details>
+        <details class="q"><summary>Will it work on staging / password-protected sites?</summary><p>Yes — as long as you can open the site in Chrome and the DevTools panel attaches, Tag Tester can audit it.</p></details>
+        <details class="q"><summary>How is this different from GTM Preview or Omnibug?</summary><p>GTM Preview only shows what GTM fired. Omnibug shows requests. Tag Tester combines both with consent reasoning, PII detection, and plain-English summaries aimed at non-engineers.</p></details>
+        <details class="q"><summary>Can I export the results?</summary><p>Yes. The toolbar has an <strong>Export JSON</strong> button with the full audit — findings, requests, cookies, <code>dataLayer</code> and page state.</p></details>
+        <details class="q"><summary>What about Safari or Firefox?</summary><p>Chrome &amp; Chromium-based browsers (Edge, Brave, Arc) are supported today. Firefox support is on the roadmap.</p></details>
+        <details class="q"><summary>Is there a paid version?</summary><p>Not yet. The extension is free during beta; a team tier with shared audit history is in design.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="wrap footer-wrap">
+      <div>
+        <div class="brand">
+          <span class="brand-mark">TT</span>
+          <span class="brand-text">Tag Tester</span>
+        </div>
+        <p class="foot-note">A Kaliper product. Audit with confidence.</p>
+      </div>
+      <div class="foot-cols">
+        <div>
+          <h4>Product</h4>
+          <a href="#features">Features</a>
+          <a href="#how">How it works</a>
+          <a href="#faq">FAQ</a>
+        </div>
+        <div>
+          <h4>Company</h4>
+          <a href="https://kaliper.io">Kaliper</a>
+          <a href="https://gtm.kaliper.io">GTM Auditor</a>
+          <a href="mailto:dev@kaliper.io">Contact</a>
+        </div>
+        <div>
+          <h4>Developers</h4>
+          <a href="https://github.com/aryan-jain18/tag-tester">GitHub</a>
+          <a href="#">Changelog</a>
+          <a href="#">Privacy</a>
+        </div>
+      </div>
+    </div>
+    <div class="wrap foot-legal">
+      <span>© <span id="year"></span> Kaliper. All rights reserved.</span>
+      <span>Built for tag specialists, by tag specialists.</span>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById("year").textContent = new Date().getFullYear();
+    document.querySelectorAll('a[href^="#"]').forEach((a) => {
+      a.addEventListener("click", (e) => {
+        const id = a.getAttribute("href").slice(1);
+        if (!id) return;
+        const target = document.getElementById(id);
+        if (!target) return;
+        e.preventDefault();
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+  </script>
+</body>
+</html>

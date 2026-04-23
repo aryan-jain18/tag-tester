@@ -1,7 +1,42 @@
 // Per-tab request capture + page-state relay for the Tag Tester devtools panel.
+//
+// State is persisted to chrome.storage.session so it survives Manifest V3
+// service-worker suspensions — without that, captured requests/cookies/origin
+// vanish when the SW is killed during idle periods.
 
 const tabs = new Map(); // tabId -> { requests: [], pageState: {}, origin: "" }
 const ports = new Map(); // tabId -> Set<Port>
+
+const STORAGE_KEY = "ttTabs";
+
+// Single in-flight hydration promise — all listeners await this before
+// touching `tabs` so cold-start SW wakeups don't read an empty map.
+let hydratePromise = null;
+function hydrate() {
+  if (hydratePromise) return hydratePromise;
+  hydratePromise = (async () => {
+    try {
+      const stored = await chrome.storage.session.get(STORAGE_KEY);
+      const obj = stored?.[STORAGE_KEY];
+      if (obj && typeof obj === "object") {
+        for (const [k, v] of Object.entries(obj)) tabs.set(Number(k), v);
+      }
+    } catch {}
+  })();
+  return hydratePromise;
+}
+hydrate();
+
+let persistTimer = null;
+function schedulePersist() {
+  if (persistTimer) return;
+  persistTimer = setTimeout(async () => {
+    persistTimer = null;
+    const obj = {};
+    for (const [k, v] of tabs.entries()) obj[k] = v;
+    try { await chrome.storage.session.set({ [STORAGE_KEY]: obj }); } catch {}
+  }, 500);
+}
 
 function bucket(tabId) {
   let b = tabs.get(tabId);
@@ -11,6 +46,7 @@ function bucket(tabId) {
 
 function resetTab(tabId) {
   tabs.set(tabId, { requests: [], pageState: {}, origin: "" });
+  schedulePersist();
   broadcast(tabId, { type: "snapshot", requests: [], pageState: {}, origin: "" });
 }
 
@@ -26,8 +62,11 @@ chrome.runtime.onConnect.addListener((port) => {
   const tabId = parseInt(m[1], 10);
   if (!ports.has(tabId)) ports.set(tabId, new Set());
   ports.get(tabId).add(port);
-  const b = bucket(tabId);
-  try { port.postMessage({ type: "snapshot", requests: b.requests, pageState: b.pageState, origin: b.origin }); } catch {}
+  (async () => {
+    await hydrate();
+    const b = bucket(tabId);
+    try { port.postMessage({ type: "snapshot", requests: b.requests, pageState: b.pageState, origin: b.origin }); } catch {}
+  })();
   port.onDisconnect.addListener(() => {
     const set = ports.get(tabId);
     if (set) { set.delete(port); if (!set.size) ports.delete(tabId); }
@@ -41,21 +80,25 @@ chrome.webNavigation.onBeforeNavigate.addListener((d) => {
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (details.tabId < 0) return;
-    const b = bucket(details.tabId);
-    const postBody = extractPostBody(details.requestBody);
-    const r = {
-      id: details.requestId,
-      tabId: details.tabId,
-      url: details.url,
-      method: details.method,
-      type: details.type,
-      timeStamp: details.timeStamp,
-      initiator: details.initiator || "",
-      postBody
-    };
-    b.requests.push(r);
-    if (b.requests.length > 3000) b.requests.shift();
-    broadcast(details.tabId, { type: "request", r });
+    (async () => {
+      await hydrate();
+      const b = bucket(details.tabId);
+      const postBody = extractPostBody(details.requestBody);
+      const r = {
+        id: details.requestId,
+        tabId: details.tabId,
+        url: details.url,
+        method: details.method,
+        type: details.type,
+        timeStamp: details.timeStamp,
+        initiator: details.initiator || "",
+        postBody
+      };
+      b.requests.push(r);
+      if (b.requests.length > 3000) b.requests.shift();
+      schedulePersist();
+      broadcast(details.tabId, { type: "request", r });
+    })();
   },
   { urls: ["<all_urls>"] },
   ["requestBody"]
@@ -64,18 +107,27 @@ chrome.webRequest.onBeforeRequest.addListener(
 chrome.webRequest.onCompleted.addListener(
   (details) => {
     if (details.tabId < 0) return;
-    const b = bucket(details.tabId);
-    const r = b.requests.find((x) => x.id === details.requestId);
-    if (r) {
-      r.status = details.statusCode;
-      r.responseHeaders = details.responseHeaders || [];
-      r.fromCache = details.fromCache;
-      broadcast(details.tabId, { type: "requestUpdate", id: details.requestId, patch: { status: r.status, fromCache: r.fromCache } });
-    }
+    (async () => {
+      await hydrate();
+      const b = bucket(details.tabId);
+      const r = b.requests.find((x) => x.id === details.requestId);
+      if (r) {
+        r.status = details.statusCode;
+        r.responseHeaders = details.responseHeaders || [];
+        r.fromCache = details.fromCache;
+        schedulePersist();
+        broadcast(details.tabId, { type: "requestUpdate", id: details.requestId, patch: { status: r.status, fromCache: r.fromCache } });
+      }
+    })();
   },
   { urls: ["<all_urls>"] },
   ["responseHeaders"]
 );
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabs.delete(tabId)) schedulePersist();
+  ports.delete(tabId);
+});
 
 function extractPostBody(rb) {
   if (!rb) return null;
@@ -95,39 +147,61 @@ function extractPostBody(rb) {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "TT_PAGE_STATE" && sender.tab) {
-    const b = bucket(sender.tab.id);
-    b.pageState = { ...b.pageState, ...msg.payload };
-    if (sender.tab.url) { try { b.origin = new URL(sender.tab.url).origin; } catch {} }
-    broadcast(sender.tab.id, { type: "pageState", pageState: b.pageState, origin: b.origin });
-    return;
+    (async () => {
+      await hydrate();
+      const b = bucket(sender.tab.id);
+      b.pageState = { ...b.pageState, ...msg.payload };
+      if (sender.tab.url) { try { b.origin = new URL(sender.tab.url).origin; } catch {} }
+      schedulePersist();
+      broadcast(sender.tab.id, { type: "pageState", pageState: b.pageState, origin: b.origin });
+    })();
+    return false;
   }
   if (msg?.type === "TT_GET_COOKIES" && typeof msg.tabId === "number") {
-    const b = bucket(msg.tabId);
-    let host = "";
-    try { host = b.origin ? new URL(b.origin).hostname : ""; } catch {}
-    chrome.cookies.getAll({}, (all) => {
-      const cookies = all.filter((c) => {
-        const d = c.domain.replace(/^\./, "");
-        return host && (host === d || host.endsWith("." + d));
+    (async () => {
+      await hydrate();
+      const b = bucket(msg.tabId);
+      let host = "";
+      try { host = b.origin ? new URL(b.origin).hostname : ""; } catch {}
+      // Fallback: if origin was lost (e.g. cookies tab opened before content
+      // script re-posted page-state), query the tab directly.
+      if (!host) {
+        try {
+          const tab = await chrome.tabs.get(msg.tabId);
+          if (tab?.url) {
+            host = new URL(tab.url).hostname;
+            b.origin = new URL(tab.url).origin;
+            schedulePersist();
+          }
+        } catch {}
+      }
+      chrome.cookies.getAll({}, (all) => {
+        const cookies = all.filter((c) => {
+          const d = c.domain.replace(/^\./, "");
+          return host && (host === d || host.endsWith("." + d));
+        });
+        sendResponse({ cookies });
       });
-      sendResponse({ cookies });
-    });
+    })();
     return true;
   }
   if (msg?.type === "TT_GET_CONTEXT" && typeof msg.tabId === "number") {
-    const b = bucket(msg.tabId);
-    chrome.cookies.getAll({}, (allCookies) => {
-      let host = "";
-      try { host = b.origin ? new URL(b.origin).hostname : ""; } catch {}
-      const cookies = allCookies.filter((c) => host && (c.domain === host || host.endsWith(c.domain.replace(/^\./, ""))));
-      sendResponse({
-        requests: b.requests,
-        pageState: b.pageState,
-        origin: b.origin,
-        host,
-        cookies
+    (async () => {
+      await hydrate();
+      const b = bucket(msg.tabId);
+      chrome.cookies.getAll({}, (allCookies) => {
+        let host = "";
+        try { host = b.origin ? new URL(b.origin).hostname : ""; } catch {}
+        const cookies = allCookies.filter((c) => host && (c.domain === host || host.endsWith(c.domain.replace(/^\./, ""))));
+        sendResponse({
+          requests: b.requests,
+          pageState: b.pageState,
+          origin: b.origin,
+          host,
+          cookies
+        });
       });
-    });
+    })();
     return true;
   }
   if (msg?.type === "TT_CLEAR_TAB" && typeof msg.tabId === "number") {
